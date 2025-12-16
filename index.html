@@ -676,16 +676,67 @@
       `Mostrando ${regs.length} equipos`;
   }
 
-  function editarCampo(idx, campo, valor) {
+  // NUEVA VERSIÓN: guarda también en backend
+  async function editarCampo(idx, campo, valor) {
     if (!puedeEditar()) return;
+    
     const ref = registrosFiltrados[idx];
     const originalIndex = registros.findIndex(r =>
       r.grupo === ref.grupo && r.cema === ref.cema && r.comeq === ref.comeq
     );
+    
     if (originalIndex !== -1) {
       registros[originalIndex][campo] = valor.trim();
       guardarLocal();
       mostrarTablaDocumental(registrosFiltrados);
+      
+      // ENVIAR CAMBIOS AL BACKEND
+      try {
+        const res = await fetch(`${API_BASE}/documentos`, {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const docs = await res.json();
+        
+        // Buscar documento en BD por grupo/cema/comeq y tipo
+        const tipoMap = {
+          'SOAT_Desde': '030. SOAT',
+          'SOAT_Hasta': '030. SOAT',
+          'Riesgo_Desde': '035. Todo Riesgo',
+          'Riesgo_Hasta': '035. Todo Riesgo',
+          'Tecno_Desde': '037. Revision Tecnomecanica',
+          'Tecno_Hasta': '037. Revision Tecnomecanica'
+        };
+        
+        const tipoDoc = tipoMap[campo];
+        const docEnBD = docs.find(d =>
+          d.grupo === registros[originalIndex].grupo &&
+          d.cema === registros[originalIndex].cema &&
+          d.comeq === registros[originalIndex].comeq &&
+          d.tipo_documento.startsWith(tipoDoc)
+        );
+        
+        if (docEnBD) {
+          await fetch(`${API_BASE}/documentos/${docEnBD.id}`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              tipo_documento: docEnBD.tipo_documento,
+              vigencia_desde: campo.includes('Desde') ? valor.trim() : docEnBD.vigencia_desde,
+              vigencia_hasta: campo.includes('Hasta') ? valor.trim() : docEnBD.vigencia_hasta,
+              estado: registros[originalIndex].estado,
+              grupo: registros[originalIndex].grupo,
+              cema: registros[originalIndex].cema,
+              comeq: registros[originalIndex].comeq
+            })
+          });
+          console.log('Guardado en backend:', docEnBD.id);
+        }
+      } catch(e) {
+        console.error('Error guardando en backend:', e);
+      }
     }
   }
 
